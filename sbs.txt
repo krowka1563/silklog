@@ -1,0 +1,67 @@
+🛠️ Krok 1: Instalacja Pythona 3.8 na Windows 11
+
+Pobierz instalator Pythona 3.8:
+
+Przejdź na stronę Python 3.8.10
+ i pobierz wersję odpowiednią dla Twojego systemu operacyjnego (32-bit lub 64-bit).
+
+Zainstaluj Pythona:
+
+Uruchom pobrany instalator.
+
+Zaznacz opcję "Add Python 3.8 to PATH" przed kliknięciem "Install Now".
+
+Po zakończeniu instalacji sprawdź, czy Python został poprawnie zainstalowany, otwierając wiersz poleceń i wpisując:
+
+python --version
+
+
+Powinieneś zobaczyć wersję Pythona 3.8.x.
+
+📦 Krok 2: Instalacja wymaganych bibliotek
+
+W wierszu poleceń zainstaluj niezbędne biblioteki:
+
+python -m pip install pynput pyinstaller pyarmor
+
+🧪 Krok 3: Kompilacja skryptu do pliku EXE
+
+Przygotuj skrypt Pythona:
+
+Upewnij się, że Twój skrypt Pythona (np. uonet_mm_proc.py) działa poprawnie na systemie Windows 11.
+
+Kompilacja skryptu:
+
+W tym samym katalogu, w którym znajduje się skrypt, uruchom wiersz poleceń i wpisz:
+
+pyinstaller --onefile --name uonet_mm_proc uonet_mm_proc.py
+
+
+Po zakończeniu procesu plik EXE zostanie zapisany w folderze dist.
+
+🔒 Krok 4: Obfuskacja kodu za pomocą PyArmor
+
+Obfuskacja skryptu:
+
+W tym samym katalogu, w którym znajduje się skrypt, uruchom wiersz poleceń i wpisz:
+
+pyarmor obfuscate --platform windows.x86_64 dist/uonet_mm_proc.exe
+
+
+Po zakończeniu procesu obfuskowany plik EXE zostanie zapisany w folderze dist.
+
+🚀 Krok 5: Testowanie na Windows 7
+
+Przeniesienie pliku EXE:
+
+Skopiuj obfuskowany plik EXE na urządzenie z systemem Windows 7.
+
+Testowanie:
+
+Uruchom plik EXE na systemie Windows 7 i sprawdź, czy działa poprawnie.
+
+⚠️ Uwagi
+
+PyInstaller nie obsługuje cross-kompilacji, co oznacza, że plik EXE skompilowany na systemie Windows 11 może nie działać poprawnie na systemie Windows 7.
+
+Aby zapewnić kompatybilność z Windows 7, zaleca się kompilację i obfuskację bezpośrednio na systemie Windows 7 lub użycie maszyny wirtualnej z tym systemem.
